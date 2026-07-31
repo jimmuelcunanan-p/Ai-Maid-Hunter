@@ -2,13 +2,15 @@ generator client {
   provider = "prisma-client-js"
 }
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url = env("DATABASE_URL")
+  schemas = ["amh"]
 }
 
 enum Role {
   ADMIN
   RECRUITER
+  @@schema("amh")
 }
 enum LeadStatus {
   SEARCH_RESULT
@@ -26,6 +28,7 @@ enum LeadStatus {
   INTERVIEW_REVIEW
   ARCHIVED
   DO_NOT_CONTACT
+  @@schema("amh")
 }
 enum Classification {
   ASPIRING_HELPER
@@ -33,6 +36,7 @@ enum Classification {
   RECRUITMENT_AGENCY
   UNRELATED
   UNCLEAR
+  @@schema("amh")
 }
 
 model User {
@@ -46,6 +50,7 @@ model User {
   searches SearchRun[]
   assignedLeads Lead[] @relation("AssignedRecruiter")
   auditLogs AuditLog[]
+  @@schema("amh")
 }
 
 model SearchRun {
@@ -66,6 +71,8 @@ model SearchRun {
   createdAt DateTime @default(now())
   leads Lead[]
   @@index([createdAt])
+  @@index([createdById])
+  @@schema("amh")
 }
 
 model Lead {
@@ -109,6 +116,8 @@ model Lead {
   @@index([status, discoveredAt])
   @@index([classification, confidenceScore])
   @@index([assignedRecruiterId])
+  @@index([searchRunId])
+  @@schema("amh")
 }
 
 model OutreachMessage {
@@ -123,6 +132,7 @@ model OutreachMessage {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([leadId])
+  @@schema("amh")
 }
 
 model ScreeningSession {
@@ -139,6 +149,7 @@ model ScreeningSession {
   completedAt DateTime?
   answers ScreeningAnswer[]
   @@index([leadId])
+  @@schema("amh")
 }
 
 model ScreeningAnswer {
@@ -149,6 +160,8 @@ model ScreeningAnswer {
   questionText String
   answerText String
   createdAt DateTime @default(now())
+  @@index([screeningSessionId])
+  @@schema("amh")
 }
 
 model TestApplication {
@@ -167,6 +180,7 @@ model TestApplication {
   consentAccepted Boolean
   submittedAt DateTime @default(now())
   @@index([submittedAt])
+  @@schema("amh")
 }
 
 model AuditLog {
@@ -180,4 +194,6 @@ model AuditLog {
   createdAt DateTime @default(now())
   @@index([createdAt])
   @@index([leadId])
+  @@index([userId])
+  @@schema("amh")
 }

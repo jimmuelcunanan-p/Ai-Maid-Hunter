@@ -1,7 +1,7 @@
 import express from "express";
-import session from "express-session";
 import helmet from "helmet";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
@@ -10,7 +10,6 @@ import { z } from "zod";
 import { createAnalyzerProvider, createSearchProvider, enforceApplicantIntent, generateSearchQueries, matchesSelectedCountry, MockAnalyzerProvider, SimulatedMessagingProvider } from "./providers.js";
 import { assertTransition, screeningQuestions } from "./workflow.js";
 
-declare module "express-session" { interface SessionData { userId:string; role:"ADMIN"|"RECRUITER" } }
 export const prisma=new PrismaClient();
 const analyzerSelection=createAnalyzerProvider();
 const searchSelection=createSearchProvider();
@@ -22,6 +21,10 @@ const audit=(userId:string|undefined,action:string,details:string,leadId?:string
 const parseJson=(s:string|null|undefined)=>{try{return JSON.parse(s||"[]")}catch{return[]}};
 const cleanLead=(l:any)=>({...l,detectedSkills:parseJson(l.detectedSkills),riskFlags:parseJson(l.riskFlags)});
 const transition=async(lead:any,to:any,userId?:string,details="")=>{assertTransition(lead.status,to);const updated=await prisma.lead.update({where:{id:lead.id},data:{status:to,reviewedAt:["APPROVED","REJECTED","DUPLICATE"].includes(to)?new Date():undefined,contactedAt:to==="CONTACTED"?new Date():undefined}});await audit(userId,`LEAD_${to}`,details||`${lead.status} to ${to}`,lead.id);return updated};
+const authCookie="amh.auth";
+const cookieOptions={httpOnly:true,sameSite:"lax" as const,secure:process.env.NODE_ENV==="production",maxAge:8*3600000,path:"/"};
+const signSession=(session:{userId:string;role:"ADMIN"|"RECRUITER"})=>{const payload=Buffer.from(JSON.stringify({...session,exp:Date.now()+cookieOptions.maxAge})).toString("base64url");const signature=crypto.createHmac("sha256",process.env.SESSION_SECRET||"local-development-secret-change-this").update(payload).digest("base64url");return `${payload}.${signature}`};
+const readSession=(token:string|undefined)=>{try{if(!token)return{};const [payload,signature]=token.split(".");const expected=crypto.createHmac("sha256",process.env.SESSION_SECRET||"local-development-secret-change-this").update(payload).digest("base64url");if(!signature||signature.length!==expected.length||!crypto.timingSafeEqual(Buffer.from(signature),Buffer.from(expected)))return{};const value=JSON.parse(Buffer.from(payload,"base64url").toString());if(value.exp<Date.now()||!value.userId||!["ADMIN","RECRUITER"].includes(value.role))return{};return {userId:value.userId,role:value.role}}catch{return{}}};
 const processSearchRun=async(runId:string,input:any,userId:string)=>{
  try{
   const results=await searchProvider.search(input);
@@ -48,7 +51,7 @@ const processSearchRun=async(runId:string,input:any,userId:string)=>{
 
 export function createApp(){
  const app=express(); app.set("trust proxy",1); app.use(helmet({contentSecurityPolicy:false})); app.use(cors({origin:process.env.APP_ORIGIN||"http://localhost:5173",credentials:true}));
- app.use(express.json({limit:"100kb"})); app.use(session({name:"amh.sid",secret:process.env.SESSION_SECRET||"local-development-secret-change-this",resave:false,saveUninitialized:false,cookie:{httpOnly:true,sameSite:"lax",secure:process.env.NODE_ENV==="production",maxAge:8*3600000}}));
+ app.use(express.json({limit:"100kb"})); app.use(cookieParser()); app.use((req:any,_res,next)=>{req.session=readSession(req.cookies?.[authCookie]);next()});
  const loginLimiter=rateLimit({
   windowMs:60000,
   limit:20,
@@ -56,12 +59,8 @@ export function createApp(){
   legacyHeaders:false,
   handler:(_req,res)=>res.status(429).json({error:"Too many authentication requests. Please wait one minute and try again."})
  });
- app.post("/api/auth/login",loginLimiter,wrap(async(req:any,res:any)=>{const body=z.object({email:z.string().email(),password:z.string().min(8)}).parse(req.body);const u=await prisma.user.findUnique({where:{email:body.email.toLowerCase()}});if(!u||!await bcrypt.compare(body.password,u.passwordHash)) throw Object.assign(new Error("Invalid email or password"),{status:401});req.session.userId=u.id;req.session.role=u.role;await audit(u.id,"LOGIN","Successful login");res.json({id:u.id,name:u.name,email:u.email,role:u.role})}));
- app.post("/api/auth/logout",auth,(req:any,res,next)=>req.session.destroy((error:any)=>{
-  if(error)return next(error);
-  res.clearCookie("amh.sid",{httpOnly:true,sameSite:"lax",secure:process.env.NODE_ENV==="production"});
-  res.status(204).end();
- }));
+ app.post("/api/auth/login",loginLimiter,wrap(async(req:any,res:any)=>{const body=z.object({email:z.string().email(),password:z.string().min(8)}).parse(req.body);const u=await prisma.user.findUnique({where:{email:body.email.toLowerCase()}});if(!u||!await bcrypt.compare(body.password,u.passwordHash)) throw Object.assign(new Error("Invalid email or password"),{status:401});req.session={userId:u.id,role:u.role};res.cookie(authCookie,signSession(req.session),cookieOptions);await audit(u.id,"LOGIN","Successful login");res.json({id:u.id,name:u.name,email:u.email,role:u.role})}));
+ app.post("/api/auth/logout",auth,(_req:any,res:any)=>{res.clearCookie(authCookie,{...cookieOptions,maxAge:undefined});res.status(204).end()});
  app.get("/api/auth/me",auth,wrap(async(req:any,res:any)=>res.json(await prisma.user.findUnique({where:{id:req.session.userId},select:{id:true,name:true,email:true,role:true}}))));
 
  const searchSchema=z.object({country:z.string().min(2),region:z.string().optional(),platform:z.enum(["All public sources","General Web","Facebook","Instagram","TikTok","LinkedIn","Reddit","Indeed","Job Boards"]).optional(),destination:z.string(),position:z.string(),language:z.string(),dateRange:z.string()});
