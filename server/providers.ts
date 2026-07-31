@@ -161,13 +161,17 @@ export class TavilySearchProvider implements SearchProvider {
     throw error;
    }finally{clearTimeout(timeout)}
   }));
-  const successful=batches.filter((batch):batch is PromiseFulfilledResult<TavilyResult[]>=>batch.status==="fulfilled");
+  const successful:TavilyResult[][]=[];
+  let firstFailure:unknown;
+  for(const batch of batches){
+   if(batch.status==="fulfilled")successful.push(batch.value);
+   else if(firstFailure===undefined)firstFailure=batch.reason;
+  }
   if(!successful.length){
-   const firstFailure=batches.find((batch):batch is PromiseRejectedResult=>batch.status==="rejected");
-   throw firstFailure?.reason??Object.assign(new Error("All Tavily searches failed"),{status:502});
+   throw firstFailure??Object.assign(new Error("All Tavily searches failed"),{status:502});
   }
   const unique=new Map<string,TavilyResult>();
-  for(const result of successful.flatMap(batch=>batch.value))if(result.url&&!isCommercialAgencyResult(result)&&matchesSelectedRegion(result,input)&&!unique.has(result.url))unique.set(result.url,result);
+  for(const result of successful.flat())if(result.url&&!isCommercialAgencyResult(result)&&matchesSelectedRegion(result,input)&&!unique.has(result.url))unique.set(result.url,result);
   return [...unique.values()].slice(0,24).map((result,index)=>{
    const url=new URL(result.url!);
    return {
@@ -286,9 +290,9 @@ export function createAnalyzerProvider():{provider:AnalyzerProvider;name:"groq"|
 }
 
 /** Placeholder only. Production must validate structured output and keep keys server-side. */
-export class OpenAIAnalyzerProvider implements AnalyzerProvider { async analyze(_:PublicResult){ throw new Error("OpenAI adapter is not activated"); } }
+export class OpenAIAnalyzerProvider implements AnalyzerProvider { async analyze(_:PublicResult):Promise<Analysis>{ throw new Error("OpenAI adapter is not activated"); } }
 /** Official Meta APIs only: cannot search arbitrary personal posts/private groups. Page messaging requires permissions, review and policy compliance. */
-export class FacebookMessengerProvider implements MessagingProvider { async send(_:string){ throw new Error("Facebook Messenger adapter is not activated"); } }
-export class WhatsAppBusinessProvider implements MessagingProvider { async send(_:string){ throw new Error("WhatsApp Business adapter is not activated"); } }
+export class FacebookMessengerProvider implements MessagingProvider { async send(_:string):Promise<{externalId:string}>{ throw new Error("Facebook Messenger adapter is not activated"); } }
+export class WhatsAppBusinessProvider implements MessagingProvider { async send(_:string):Promise<{externalId:string}>{ throw new Error("WhatsApp Business adapter is not activated"); } }
 export class SimulatedMessagingProvider implements MessagingProvider { async send(_:string){return {externalId:`sim_${crypto.randomUUID()}`}} }
-export class ApprovedSearchProvider implements SearchProvider { async search(_:SearchInput){throw new Error("Approved search adapter is not configured")} }
+export class ApprovedSearchProvider implements SearchProvider { async search(_:SearchInput):Promise<PublicResult[]>{throw new Error("Approved search adapter is not configured")} }
