@@ -1,0 +1,183 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "sqlite"
+  url = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  RECRUITER
+}
+enum LeadStatus {
+  SEARCH_RESULT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  DUPLICATE
+  CONTACT_READY
+  CONTACTED
+  INTERESTED
+  NOT_INTERESTED
+  NO_RESPONSE
+  SCREENING
+  APPLICATION_SUBMITTED
+  INTERVIEW_REVIEW
+  ARCHIVED
+  DO_NOT_CONTACT
+}
+enum Classification {
+  ASPIRING_HELPER
+  EMPLOYER
+  RECRUITMENT_AGENCY
+  UNRELATED
+  UNCLEAR
+}
+
+model User {
+  id String @id @default(cuid())
+  name String
+  email String @unique
+  passwordHash String
+  role Role @default(RECRUITER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  searches SearchRun[]
+  assignedLeads Lead[] @relation("AssignedRecruiter")
+  auditLogs AuditLog[]
+}
+
+model SearchRun {
+  id String @id @default(cuid())
+  country String
+  destination String
+  position String
+  language String
+  dateRange String
+  generatedQueries String
+  resultsFound Int @default(0)
+  qualifiedResults Int @default(0)
+  status String @default("PENDING")
+  error String?
+  finishedAt DateTime?
+  createdById String
+  createdBy User @relation(fields: [createdById], references: [id])
+  createdAt DateTime @default(now())
+  leads Lead[]
+  @@index([createdAt])
+}
+
+model Lead {
+  id String @id @default(cuid())
+  publicDisplayName String
+  sourceName String
+  sourceUrl String @unique
+  sourcePostTitle String
+  sourcePostExcerpt String
+  sourcePublishedAt DateTime
+  detectedCountry String?
+  detectedDestination String?
+  detectedExperience String?
+  detectedSkills String @default("[]")
+  detectedLanguage String?
+  classification Classification
+  explicitJobIntent Boolean @default(false)
+  confidenceScore Int
+  aiSummary String
+  riskFlags String @default("[]")
+  status LeadStatus @default(PENDING_REVIEW)
+  assignedRecruiterId String?
+  assignedRecruiter User? @relation("AssignedRecruiter", fields: [assignedRecruiterId], references: [id])
+  searchRunId String?
+  searchRun SearchRun? @relation(fields: [searchRunId], references: [id])
+  registrationToken String @unique
+  consentToContinue Boolean @default(false)
+  doNotContact Boolean @default(false)
+  possibleDuplicateId String?
+  internalNote String?
+  discoveredAt DateTime @default(now())
+  reviewedAt DateTime?
+  contactedAt DateTime?
+  registeredAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  outreachMessages OutreachMessage[]
+  screeningSessions ScreeningSession[]
+  application TestApplication?
+  auditLogs AuditLog[]
+  @@index([status, discoveredAt])
+  @@index([classification, confidenceScore])
+  @@index([assignedRecruiterId])
+}
+
+model OutreachMessage {
+  id String @id @default(cuid())
+  leadId String
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  messageText String
+  version Int @default(1)
+  approved Boolean @default(false)
+  approvedBy String?
+  simulatedResponse String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([leadId])
+}
+
+model ScreeningSession {
+  id String @id @default(cuid())
+  leadId String
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  preferredLanguage String @default("English")
+  currentQuestion Int @default(0)
+  completed Boolean @default(false)
+  pausedForHuman Boolean @default(false)
+  summary String?
+  recommendedNextStep String?
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+  answers ScreeningAnswer[]
+  @@index([leadId])
+}
+
+model ScreeningAnswer {
+  id String @id @default(cuid())
+  screeningSessionId String
+  screeningSession ScreeningSession @relation(fields: [screeningSessionId], references: [id], onDelete: Cascade)
+  questionKey String
+  questionText String
+  answerText String
+  createdAt DateTime @default(now())
+}
+
+model TestApplication {
+  id String @id @default(cuid())
+  leadId String @unique
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fullName String
+  country String
+  contactMethod String
+  contactValue String
+  experience String
+  overseasExperience String
+  skills String
+  availability String
+  preferredLanguage String
+  consentAccepted Boolean
+  submittedAt DateTime @default(now())
+  @@index([submittedAt])
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+  userId String?
+  user User? @relation(fields: [userId], references: [id])
+  leadId String?
+  lead Lead? @relation(fields: [leadId], references: [id])
+  action String
+  details String
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+  @@index([leadId])
+}

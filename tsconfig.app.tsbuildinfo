@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/lib/qualification.test.ts","./src/lib/qualification.ts","./src/lib/supabase.ts","./src/providers/authprovider.tsx","./src/services/authservice.ts","./src/services/candidateservice.ts","./src/types/index.ts"],"version":"5.9.3"}
