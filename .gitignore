@@ -1,0 +1,9 @@
+# Local environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Generated dependencies and build output
+node_modules/
+dist/
+
